@@ -1,0 +1,89 @@
+{
+  "properties": {
+    "activities": [
+      {
+        "name": "ForEach_Raw_Bronze_Ingestion",
+        "type": "ForEach",
+        "dependsOn": [],
+        "typeProperties": {
+          "items": {
+            "value": "@pipeline().parameters.resourcesInOrder",
+            "type": "Expression"
+          },
+          "isSequential": true,
+          "activities": [
+            {
+              "name": "Notebook_Raw_Bronze_Ingestion",
+              "type": "TridentNotebook",
+              "dependsOn": [],
+              "typeProperties": {
+                "notebookId": "00000000-0000-0000-0000-000000000002",
+                "workspaceId": "00000000-0000-0000-0000-000000000000",
+                "parameters": {
+                  "resourceType": {
+                    "value": "@item()",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "ForEach_Silver_SCD2_Transformation",
+        "type": "ForEach",
+        "dependsOn": [
+          {
+            "activity": "ForEach_Raw_Bronze_Ingestion",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "typeProperties": {
+          "items": {
+            "value": "@pipeline().parameters.resourcesInOrder",
+            "type": "Expression"
+          },
+          "isSequential": true,
+          "activities": [
+            {
+              "name": "Notebook_Silver_SCD2_Transformation",
+              "type": "TridentNotebook",
+              "dependsOn": [],
+              "typeProperties": {
+                "notebookId": "00000000-0000-0000-0000-000000000003",
+                "workspaceId": "00000000-0000-0000-0000-000000000000",
+                "parameters": {
+                  "resourceType": {
+                    "value": "@item()",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "Notebook_Gold_Views",
+        "type": "TridentNotebook",
+        "dependsOn": [
+          {
+            "activity": "ForEach_Silver_SCD2_Transformation",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "typeProperties": {
+          "notebookId": "00000000-0000-0000-0000-000000000004",
+          "workspaceId": "00000000-0000-0000-0000-000000000000"
+        }
+      }
+    ],
+    "parameters": {
+      "resourcesInOrder": {
+        "type": "array",
+        "defaultValue": ["Patient", "Encounter", "Observation", "Condition"]
+      }
+    }
+  }
+}

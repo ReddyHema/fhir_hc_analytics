@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+local_dev/lakehouse_local/
+local_dev/lakehouse_local_scd2_test/
+local_dev/lakehouse_local_fabric_validation/
+local_dev/*.log
+local_dev/.venv/
+*.egg-info/
+.pytest_cache/
+.DS_Store

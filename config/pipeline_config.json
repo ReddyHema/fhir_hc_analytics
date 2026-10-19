@@ -1,0 +1,21 @@
+{
+  "fhir_base_url": "https://hapi.fhir.org/baseR4",
+  "resources_in_order": ["Patient", "Encounter", "Observation", "Condition"],
+  "lookback_days": 3,
+  "page_size": 50,
+  "max_pages_per_day": 200,
+  "request_timeout_seconds": 30,
+  "retry": {
+    "max_attempts": 4,
+    "backoff_seconds": 2
+  },
+  "lakehouse": {
+    "name": "fhir_lakehouse",
+    "raw_path": "Files/raw",
+    "bronze_schema_prefix": "bronze_",
+    "silver_schema_prefix": "silver_",
+    "gold_schema_prefix": "gold_",
+    "control_table": "etl_control",
+    "metadata_log_table": "etl_metadata_log"
+  }
+}
