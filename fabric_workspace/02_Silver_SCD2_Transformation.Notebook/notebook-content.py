@@ -77,19 +77,25 @@ run_id = new_batch_id()
 
 # CELL ********
 
-SILVER_SELECT_EXPR = {
-    "Patient": lambda df: df.select(
+def _silver_select_patient(df: DataFrame):
+    name_text_expr = patient_name(df)
+    return df.select(
         scalar_field(df, "id").alias("business_key"),
-        patient_name(df).alias("name_text"),
+        name_text_expr.alias("name_text"),
         scalar_field(df, "gender").alias("gender"),
         scalar_field(df, "birthDate").alias("birth_date"),
         F.coalesce(scalar_field(df, "deceasedBoolean"), scalar_field(df, "deceasedDateTime")).alias("deceased"),
         patient_address(df).alias("address_text"),
         codeable_concept_text(df, "maritalStatus").alias("marital_status"),
         reference_field(df, "managingOrganization").alias("managing_organization"),
+        is_valid_name_expr(name_text_expr).alias("is_name_valid"),
         nested_field(df, "meta", "$.lastUpdated").alias("meta_last_updated"),
         "extraction_timestamp", "api_url_or_params", "extraction_date", "batch_id", "run_id",
-    ),
+    )
+
+
+SILVER_SELECT_EXPR = {
+    "Patient": _silver_select_patient,
     "Encounter": lambda df: df.select(
         scalar_field(df, "id").alias("business_key"),
         scalar_field(df, "status").alias("status"),

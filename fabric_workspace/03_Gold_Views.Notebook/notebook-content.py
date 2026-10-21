@@ -67,7 +67,17 @@ condition = current_silver("condition")
 
 # --- gold_dim_patient ---
 if patient is not None:
-    dim_patient = patient.select(
+    # Filter out patients whose extracted name failed the data-quality check (see
+    # is_valid_name_expr in FHIR_Common_Utils): hapi.fhir.org is a public,
+    # unauthenticated test sandbox, so some Patient records contain unresolved API
+    # testing template placeholders or garbled encoding-test strings instead of real
+    # names. Gold is the reporting-optimized layer, so it's the right place to
+    # exclude these; Bronze/Silver keep them for full lineage/audit fidelity.
+    patient_for_gold = patient
+    if "is_name_valid" in patient.columns:
+        patient_for_gold = patient.filter(F.col("is_name_valid") == True)  # noqa: E712
+
+    dim_patient = patient_for_gold.select(
         F.col("business_key").alias("patient_id"), "name_text", "gender",
         F.to_date("birth_date").alias("birth_date"),
         "deceased", "address_text", "marital_status",

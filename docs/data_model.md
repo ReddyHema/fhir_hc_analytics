@@ -37,6 +37,12 @@ Business columns per resource:
 | **Observation** | `status`, `category_text`, `code_text`, `subject_reference`, `encounter_reference`, `effective_datetime`, `value_quantity`, `value_unit`, `value_string` |
 | **Condition** | `clinical_status`, `verification_status`, `code_text`, `subject_reference`, `encounter_reference`, `onset_datetime`, `recorded_date` |
 
+`silver_patient` additionally carries one derived, non-business data-quality column:
+
+| Column | Description |
+|---|---|
+| `is_name_valid` | Boolean flag from `is_valid_name_expr` (defined in `FHIR_Common_Utils`). `hapi.fhir.org` is a public, unauthenticated test sandbox that anyone can POST data to, so some Patient records contain unresolved API-testing template placeholders (e.g. `{{testGivenName}}`) or deliberately garbled encoding-test strings instead of real names. This heuristic (no `{{`/`}}` template syntax, not blank, ≥60% letter/space characters) flags those without deleting the row — Silver stays lossless; only Gold (see below) actually filters on it. Legitimate international names (Chinese, Finnish/Spanish diacritics, etc.) are intentionally preserved. |
+
 ### SCD Type 2 merge algorithm (implemented in `02_Silver_SCD2_Transformation`)
 
 1. Compute `row_hash` over the business columns for the latest incoming version of each `business_key` (one row per key, picking the newest `meta_last_updated`).
@@ -52,7 +58,7 @@ This guarantees: exactly one current row per `business_key` at all times, and a 
 
 | Table/View | Type | Grain | Notes |
 |---|---|---|---|
-| `gold_dim_patient` | Delta table | 1 row / patient | From `silver_patient` current rows. `birth_date` is cast to `DATE`. |
+| `gold_dim_patient` | Delta table | 1 row / patient (name-quality filtered) | From `silver_patient` current rows **where `is_name_valid = true`**. `birth_date` is cast to `DATE`. |
 | `gold_fact_encounter` | Delta table | 1 row / encounter | `patient_id` derived from `subject_reference` via regex. `period_start`/`period_end` cast to `TIMESTAMP`. |
 | `gold_fact_observation` | Delta table | 1 row / observation | `patient_id`/`encounter_id` derived from references. `effective_datetime` cast to `TIMESTAMP`, `value_quantity` cast to `DOUBLE`. |
 | `gold_fact_condition` | Delta table | 1 row / condition | `patient_id`/`encounter_id` derived from references. `onset_datetime`/`recorded_date` cast to `TIMESTAMP`. |

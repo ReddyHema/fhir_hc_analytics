@@ -232,19 +232,40 @@ def _patient_address(df: DataFrame):
     )
 
 
-SILVER_SELECT_EXPR = {
-    "Patient": lambda df: df.select(
+def _is_valid_name_expr(name_col):
+    """Mirrors is_valid_name_expr in FHIR_Common_Utils (see that notebook for the
+    full rationale): flags template placeholders / garbled test-sandbox names
+    without deleting the row."""
+    letter_chars = F.length(F.regexp_replace(name_col, "[^\\p{L}\\s]", ""))
+    total_chars = F.greatest(F.length(name_col), F.lit(1))
+    letter_ratio = letter_chars / total_chars
+    return (
+        name_col.isNotNull()
+        & (F.trim(name_col) != "")
+        & (~name_col.rlike("\\{\\{|\\}\\}"))
+        & (letter_ratio >= F.lit(0.6))
+    )
+
+
+def _silver_select_patient(df: DataFrame):
+    name_text_expr = _patient_name(df)
+    return df.select(
         _scalar(df, "id").alias("business_key"),
-        _patient_name(df).alias("name_text"),
+        name_text_expr.alias("name_text"),
         _scalar(df, "gender").alias("gender"),
         _scalar(df, "birthDate").alias("birth_date"),
         F.coalesce(_scalar(df, "deceasedBoolean"), _scalar(df, "deceasedDateTime")).alias("deceased"),
         _patient_address(df).alias("address_text"),
         _codeable_concept_text(df, "maritalStatus").alias("marital_status"),
         _reference(df, "managingOrganization").alias("managing_organization"),
+        _is_valid_name_expr(name_text_expr).alias("is_name_valid"),
         _nested(df, "meta", "$.lastUpdated").alias("meta_last_updated"),
         "extraction_timestamp", "api_url_or_params", "extraction_date", "batch_id", "run_id",
-    ),
+    )
+
+
+SILVER_SELECT_EXPR = {
+    "Patient": _silver_select_patient,
     "Encounter": lambda df: df.select(
         _scalar(df, "id").alias("business_key"),
         _scalar(df, "status").alias("status"),
@@ -380,7 +401,10 @@ def build_gold(spark: SparkSession) -> None:
     condition = silver("condition")
 
     if patient is not None:
-        dim_patient = patient.select(
+        patient_for_gold = patient
+        if "is_name_valid" in patient.columns:
+            patient_for_gold = patient.filter(F.col("is_name_valid") == True)  # noqa: E712
+        dim_patient = patient_for_gold.select(
             F.col("business_key").alias("patient_id"), "name_text", "gender",
             F.to_date("birth_date").alias("birth_date"),
             "deceased", "address_text", "marital_status",
@@ -436,7 +460,7 @@ def build_gold(spark: SparkSession) -> None:
                 "patient_id", F.regexp_extract("subject_reference", r"Patient/(.+)", 1)
             ).groupBy("patient_id").agg(F.count("*").alias("observation_count"))
 
-        summary = patient.select(F.col("business_key").alias("patient_id"), "name_text", "gender", "birth_date")
+        summary = patient_for_gold.select(F.col("business_key").alias("patient_id"), "name_text", "gender", "birth_date")
         summary = summary.join(enc_counts, "patient_id", "left")
         if cond_counts is not None:
             summary = summary.join(cond_counts, "patient_id", "left")

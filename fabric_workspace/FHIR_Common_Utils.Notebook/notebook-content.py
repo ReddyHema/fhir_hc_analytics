@@ -323,6 +323,30 @@ def patient_address(df: DataFrame):
     )
 
 
+def is_valid_name_expr(name_col):
+    """Data-quality heuristic for a FHIR patient's extracted display name.
+
+    hapi.fhir.org is a public, unauthenticated test sandbox: anyone can POST
+    test data to it, so some Patient records contain unresolved API-testing
+    template placeholders (e.g. "{{testGivenName}}") or deliberately garbled
+    encoding-test strings instead of real names. This flags those cases
+    without deleting the row -- Silver/Bronze must stay lossless; only Gold
+    (built for reporting) actually filters on this flag. Legitimate
+    international names (e.g. CJK characters) are intentionally NOT flagged:
+    the check only looks for template syntax and a healthy letter-to-symbol
+    ratio, not a specific alphabet.
+    """
+    letter_chars = F.length(F.regexp_replace(name_col, "[^\\p{L}\\s]", ""))
+    total_chars = F.greatest(F.length(name_col), F.lit(1))
+    letter_ratio = letter_chars / total_chars
+    return (
+        name_col.isNotNull()
+        & (F.trim(name_col) != "")
+        & (~name_col.rlike("\\{\\{|\\}\\}"))
+        & (letter_ratio >= F.lit(0.6))
+    )
+
+
 # Business attributes used for SCD2 change-hash computation per resource type
 # (excludes technical/metadata columns).
 SCD2_BUSINESS_COLUMNS = {
