@@ -378,7 +378,21 @@ def transform_silver_scd2(spark: SparkSession, resource_type: str, run_id: str) 
     )
     inserted_count = to_insert.count()
     if inserted_count > 0:
-        to_insert.write.format("delta").mode("append").save(silver_path)
+        to_insert.write.format("delta").mode("append").option("mergeSchema", "true").save(silver_path)
+
+    # One-time backfill for columns added to the Patient select after this
+    # silver table already existed (e.g. is_name_valid). See the matching
+    # comment in 02_Silver_SCD2_Transformation for the full rationale: the
+    # SCD2 merge above only touches rows whose row_hash changed, so
+    # pre-existing unchanged rows would otherwise keep a NULL value forever,
+    # and a Gold filter on "col = true" would silently drop those NULLs too.
+    if resource_type == "Patient":
+        target_cols = [f.name for f in spark.read.format("delta").load(silver_path).schema.fields]
+        if "is_name_valid" in target_cols:
+            DeltaTable.forPath(spark, silver_path).update(
+                condition="is_name_valid IS NULL",
+                set={"is_name_valid": _is_valid_name_expr(F.col("name_text"))},
+            )
 
     log_metadata(spark, resource_type, "silver_scd2", "incremental_merge", inserted_count, "SUCCESS", run_id)
     return inserted_count

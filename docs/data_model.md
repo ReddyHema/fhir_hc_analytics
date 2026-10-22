@@ -43,6 +43,19 @@ Business columns per resource:
 |---|---|
 | `is_name_valid` | Boolean flag from `is_valid_name_expr` (defined in `FHIR_Common_Utils`). `hapi.fhir.org` is a public, unauthenticated test sandbox that anyone can POST data to, so some Patient records contain unresolved API-testing template placeholders (e.g. `{{testGivenName}}`) or deliberately garbled encoding-test strings instead of real names. This heuristic (no `{{`/`}}` template syntax, not blank, ≥60% letter/space characters) flags those without deleting the row — Silver stays lossless; only Gold (see below) actually filters on it. Legitimate international names (Chinese, Finnish/Spanish diacritics, etc.) are intentionally preserved. |
 
+> **Adding a column to an existing Silver table ("schema upgrade")**: because the SCD2
+> merge only touches rows whose `row_hash` changed, a column added *after* a Silver
+> table was already populated (like `is_name_valid` was) would otherwise be left `NULL`
+> forever on every pre-existing, unchanged row — and a Gold filter on `col = true` would
+> then silently drop those `NULL` rows too (SQL/Spark filters treat `NULL` as neither
+> true nor false). `02_Silver_SCD2_Transformation` handles this with two safeguards:
+> 1. The incremental append uses `.option("mergeSchema", "true")`, so adding the new
+>    column no longer throws `DELTA_METADATA_MISMATCH`.
+> 2. A one-time (idempotent) backfill — `DeltaTable.update(condition="is_name_valid IS
+>    NULL", ...)` — recomputes `is_name_valid` for every pre-existing row directly from
+>    its already-stored `name_text`, with no re-extraction and no SCD2 history loss.
+>    Verified end-to-end in [local_dev/test_schema_upgrade_backfill.py](../local_dev/test_schema_upgrade_backfill.py).
+
 ### SCD Type 2 merge algorithm (implemented in `02_Silver_SCD2_Transformation`)
 
 1. Compute `row_hash` over the business columns for the latest incoming version of each `business_key` (one row per key, picking the newest `meta_last_updated`).

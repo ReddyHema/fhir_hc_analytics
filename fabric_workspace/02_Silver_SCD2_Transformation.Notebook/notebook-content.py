@@ -209,7 +209,23 @@ else:
         )
         inserted_count = to_insert.count()
         if inserted_count > 0:
-            to_insert.write.format("delta").mode("append").saveAsTable(silver_table)
+            to_insert.write.format("delta").mode("append").option("mergeSchema", "true").saveAsTable(silver_table)
+
+        # One-time backfill for columns added to the Patient select after
+        # silver_patient already existed (e.g. is_name_valid): the SCD2 merge
+        # above only touches rows whose row_hash changed, so pre-existing,
+        # unchanged patients would otherwise be left with is_name_valid=NULL
+        # forever -- and a Gold filter on "is_name_valid = true" would then
+        # silently drop those NULL rows too. This recomputes it purely from
+        # the row's own already-stored name_text, with no re-extraction or
+        # SCD2 history loss, and is a no-op on every future run once backfilled.
+        if resourceType == "Patient":
+            target_cols = [f.name for f in spark.table(silver_table).schema.fields]
+            if "is_name_valid" in target_cols:
+                DeltaTable.forName(spark, silver_table).update(
+                    condition="is_name_valid IS NULL",
+                    set={"is_name_valid": is_valid_name_expr(F.col("name_text"))},
+                )
 
     log_metadata(resourceType, "silver_scd2", "bronze->silver", inserted_count, "SUCCESS", run_id)
 
